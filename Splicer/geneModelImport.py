@@ -1,8 +1,21 @@
+
 import sys
 import sqlite3
 import os
 from _sqlite3 import IntegrityError
 
+#usage 
+    #argument 1: gtf or ucsc  
+    #argument 2: path for database
+    #argument 3: input file
+if len(sys.argv) < 4:
+    print("the first argument should be 'gtf' or 'ucsc' to determine the input type")
+    print("the second argument should be the path to where you want to store the database file")
+    print("the third argument should be the input file")
+    sys.exit()
+
+#class that holds the data of an exon
+#these are made for each exon line in a transcript, updated with the cds and utr info, and then inserted into the database
 class Exon:
     def __init__(self, tid, eid, exonNum, chrom, startPos, stopPos):
         self.tid = tid
@@ -16,6 +29,7 @@ class Exon:
         self.utrStart = None
         self.utrStop = None
     
+    #inserts this exon into the database
     def insert(self):
         if self.utrStart != None:
             #if there is more than one utr join them with a dash
@@ -28,7 +42,7 @@ class Exon:
                 self.utrStop = self.utrStop[0]
         c.execute("INSERT INTO Exon VALUES("+str(self.tid)+", "+str(self.eid)+", "+str(self.exonNum)+", '"+str(self.chrom)+"', "+str(self.startPos)+", "+str(self.stopPos)+", "+str(self.cdsStart)+", "+str(self.cdsStop)+", '"+str(self.utrStart)+"', '"+str(self.utrStop)+"')")
 
-        
+    #checks if a given utr start is within the bounds of this exon
     def contains(self, utrStart):
         if utrStart >= self.startPos and utrStart <= self.stopPos:
             return True
@@ -107,7 +121,7 @@ class exonDataContainer:
 
 """
 #get connection to the sqlite database
-conn = sqlite3.connect("E:\speedSplice" + os.path.sep + 'splice.sqlite', isolation_level=None)
+conn = sqlite3.connect(sys.argv[2] + os.path.sep + 'splice.sqlite', isolation_level=None)
 c = conn.cursor()
 
 #create or rebuild tables
@@ -147,7 +161,9 @@ c.execute('''CREATE TABLE Exon
               UTR_Start varchar(30) DEFAULT NULL,
               UTR_Stop varchar(30) DEFAULT NULL);''')
 
-#turn a string of a dictionary into a dictionary
+
+#column 8 of gtf format is s dictionary in string form
+#this function makes that string into an actual dictionary
 def dictGen(stringDict):
     retDict = {}
     sdSplitList = stringDict.split(";")
@@ -162,8 +178,9 @@ def dictGen(stringDict):
             retDict[eSplit[1]] = eSplit[2]
     return retDict
 
-if sys.argv[0] == "gtf":
-    infile = open('Homo_sapiens.GRCh37.87.gtf', 'r')    
+if sys.argv[1] == "gtf":
+    #open the input file    INPUT FILE FOR TESTING: Homo_sapiens.GRCh37.87.gtf
+    infile = open(sys.argv[3], 'r')    
     geneIndex = 0
     tranIndex = 0
     exonIndex = 0
@@ -223,13 +240,23 @@ if sys.argv[0] == "gtf":
     
     c.execute("commit")
     print("done")
-elif sys.argv[0] == "ucsc":
+    
+elif sys.argv[1] == "ucsc":
     #read kgXref and build a dictionary(enst -> gene symbol)
     infile = open('kgXref.txt', 'r')    
     enstSymbol = {}
     for line in infile:
         lList = line.replace('\n','').split("\t")
         enstSymbol[lList[0]] = lList[4]
+    #read kgTxInfo to make and dictionary about which transcripts are coding
+    infile = open('kgTxInfo.txt', 'r')    
+    codingTrans = {}
+    for line in infile:
+        lList = line.replace('\n','').split("\t")
+        if lList[12] == 1 and lList[13] == 1:
+            codingTrans[lList[0]] = True
+        else:
+            codingTrans[lList[0]] = False
     
     #populate gene table
     infile = open('knownGene.txt', 'r')

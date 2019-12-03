@@ -3,6 +3,7 @@ import sys
 import sqlite3
 import os
 from _sqlite3 import IntegrityError
+from _overlapped import NULL
 
 #usage 
     #argument 1: gtf or ucsc  
@@ -24,8 +25,8 @@ class Exon:
         self.chrom = chrom
         self.startPos = startPos
         self.stopPos = stopPos
-        self.cdsStart = 0
-        self.cdsStop = 0
+        self.cdsStart = None
+        self.cdsStop = None
         self.utrStart = None
         self.utrStop = None
     
@@ -49,29 +50,6 @@ class Exon:
         else:
             return False
 """        
-class SubExon:
-    def __init__(self, name, start, stop):
-        self.name = name
-        self.start = start
-        self.stop = stop
-        
-        
-class exonDataContainer:
-    def __init__(self, starts, stops, cdsStart, cdsStop, strand):
-        self.starts = starts
-        self.stops = stops
-        self.cdsStarts = [cdsStart]
-        self.cdsStops = [cdsStop]
-        self.strand = strand
-    
-    #add a new line of data to the variables
-    def addLine(self, starts, stops, cdsStart, cdsStop):
-        self.starts.update(starts)
-        self.stops.update(stops)
-        self.cdsStarts.append(cdsStart)
-        self.cdsStops.append(cdsStop)
-        
-    def datInsert(self):
         #add all the positions to a list and sort them
         posList = list(self.starts)
         posList.extend(self.stops)
@@ -118,7 +96,6 @@ class exonDataContainer:
             #for exon in exonList:
             #add to database   
         print(posList)
-
 """
 #get connection to the sqlite database
 conn = sqlite3.connect(sys.argv[2] + os.path.sep + 'splice.sqlite', isolation_level=None)
@@ -146,7 +123,8 @@ c.execute('''CREATE TABLE Transcript
               Transcript_Reference_ID INTEGER NOT NULL DEFAULT NULL,
               Chromosome varchar(30) NOT NULL DEFAULT NULL,
               Start_Position INTEGER NOT NULL DEFAULT NULL,
-              Stop_Position INTEGER NOT NULL DEFAULT NULL);''')
+              Stop_Position INTEGER NOT NULL DEFAULT NULL,
+              Type varchar(30) NOT NULL DEFAULT NULL);''')
 
 c.execute("DROP TABLE IF EXISTS Exon;")
 c.execute('''CREATE TABLE Exon
@@ -178,6 +156,53 @@ def dictGen(stringDict):
             retDict[eSplit[1]] = eSplit[2]
     return retDict
 
+def UcscCoding(started, ended, codingTrans, lList, starts, stops, cdsStart, cdsStop):
+    exonCdsStart = None
+    exonCdsStop = None
+    exonUtrStart = None
+    exonUtrStop = None
+    exonStart = starts[i]
+    exonStop = stops[i]
+    if(codingTrans[lList[0]]):
+        #whole exon is utr
+        if not started or ended:
+            exonUtrStart = exonStart
+            exonUtrStop = exonStop
+                
+        #cds start is in the exon
+        if cdsStart <= exonStop and cdsStart >= exonStart:
+            started = True
+            if cdsStart == exonStart:
+                exonCdsStart = exonStart
+            else:
+                exonUtrStart = str(exonStart)
+                exonUtrStop = str(int(cdsStart)-1)
+                exonCdsStart = cdsStart
+                        
+        #only look for the end if it is started
+        if started:
+            #if the cds did not start this exon then the cds start is the exon start
+            if exonCdsStart == None:
+                exonCdsStart = exonStart
+            #if cds stop is in the exon
+            if cdsStop <= exonStop and cdsStop >= exonStart:
+                ended = True
+                if cdsStop == exonStop:
+                    exonCdsStop = exonStop
+                else:
+                    exonCdsStop = cdsStop
+                    #if there is already a utr add a second one after a dash
+                    if exonUtrStart == None:
+                        exonUtrStart = str(int(cdsStop)+1)
+                        exonUtrStop = str(exonStop)
+                    else:
+                        exonUtrStart = str(exonUtrStart) + "-" + str(int(cdsStop)+1)
+                        exonUtrStop = str(exonUtrStop) + "-" + str(exonStop)
+            else:
+                exonCdsStop = exonStop
+                
+    return   {"cdsStart":exonCdsStart, "cdsStop":exonCdsStop, "utrStart":exonUtrStart, "utrStop":exonUtrStop, "started":started, "ended":ended}      
+    
 if sys.argv[1] == "gtf":
     #open the input file    INPUT FILE FOR TESTING: Homo_sapiens.GRCh37.87.gtf
     infile = open(sys.argv[3], 'r')    
@@ -209,7 +234,7 @@ if sys.argv[1] == "gtf":
                 #insert transcript stuff    
                 tranIndex += 1
                 col8 = dictGen(lList[8])
-                c.execute("INSERT INTO Transcript VALUES("+str(geneIndex)+", "+str(tranIndex)+", '"+col8['transcript_id']+"', '"+lList[0]+"', '"+lList[3]+"', '"+lList[4]+"')")
+                c.execute("INSERT INTO Transcript VALUES("+str(geneIndex)+", "+str(tranIndex)+", '"+col8['transcript_id']+"', '"+lList[0]+"', '"+lList[3]+"', '"+lList[4]+"', '"+col8['transcript_biotype']+"')")
             #if this line is a new exon create a new exon object
             elif lList[2] == "exon":
                 exonIndex += 1
@@ -251,20 +276,25 @@ elif sys.argv[1] == "ucsc":
     #read kgTxInfo to make and dictionary about which transcripts are coding
     infile = open('kgTxInfo.txt', 'r')    
     codingTrans = {}
+    typeTrans = {}
     for line in infile:
         lList = line.replace('\n','').split("\t")
-        if lList[12] == 1 and lList[13] == 1:
+        typeTrans[lList[0]] = lList[1]
+        if lList[1] == 'coding' and lList[11] == '1' and lList[12] == '1':
             codingTrans[lList[0]] = True
         else:
             codingTrans[lList[0]] = False
     
     #populate gene table
-    infile = open('knownGene.txt', 'r')
-    geneIdx = 1;
-    tranIdx = 1;
+    #open input file       TESTING FILE: knownGene.txt
+    infile = open(sys.argv[3], 'r')
+    geneIdx = 1
+    tranIdx = 0
+    exonIdx = 1
     currentSymbol = ""
     currentChrom = ""
     currentStrand = ""
+    geneCoding = False
     maxStop = None
     minStart = None
     exonData = {} #symbol -> exon data object
@@ -282,8 +312,11 @@ elif sys.argv[1] == "ucsc":
             maxStop = lList[4]
         #check if the line belongs to the current symbol
         if symbol != currentSymbol :
-            
-            c.execute("INSERT INTO gene VALUES("+str(geneIdx)+", '""', '"+currentSymbol+"', '"+currentChrom+"', '"+minStart+"', '"+maxStop+"', Null, 'UCSC KnownGene')")
+            geneType = "noncoding"
+            if geneCoding:
+                geneType = "coding"
+            c.execute("INSERT INTO gene VALUES("+str(geneIdx)+", '""', '"+currentSymbol+"', '"+currentChrom+"', '"+currentStrand+"', '"+minStart+"', '"+maxStop+"', '"+geneType+"', 'UCSC KnownGene')")
+            geneCoding = False
             currentSymbol = symbol 
             currentChrom = lList[1]
             currentStrand = lList[2]
@@ -292,24 +325,29 @@ elif sys.argv[1] == "ucsc":
             print(geneIdx)
             geneIdx+=1
         #always insert the transcript info
-        c.execute("INSERT INTO Transcript VALUES("+str(geneIdx)+", '"+str(tranIdx)+"', '"+lList[0]+"', '"+lList[1]+"', '"+lList[3]+"', '"+lList[4]+"')")
+        tranIdx+=1
+        c.execute("INSERT INTO Transcript VALUES("+str(geneIdx)+", '"+str(tranIdx)+"', '"+lList[0]+"', '"+lList[1]+"', "+lList[3]+", "+lList[4]+", '"+typeTrans[lList[0]]+"')")
+        #if one transcript is coding set type to coding for this gene
+        if codingTrans[lList[0]]:
+            geneCoding = True
+        
         minStart = minStart if lList[3] > minStart else lList[3]
         maxStop = maxStop if lList[4] < maxStop else lList[4]
+        started = False
+        ended = False
+        for i in range(len(starts)-1):
+            iNumber = i+1
+            #find out exon number (counts backwards if negative strand)
+            exonNumber = iNumber if lList[2] == '+' else len(starts)-iNumber
             
-        """
-        c.execute("SELECT id FROM gene WHERE symbol = '"+symbol+"'")
-        ret = c.fetchall()
-        gid = ret[0][0]
-        
-        #the number of splices is the length of the starts list -1, but all the lists ends in a comma and artificially inflate the length by 1 so it must be -2 here
-        for index in range(len(starts)-2): 
-            try:
-                c.execute("INSERT INTO splice VALUES("+str(gid)+", '"+str(spliceIdx)+"', 'None', '"+stops[index]+"', 'None', '"+starts[index+1]+"')")
-                spliceIdx+=1
-            except IntegrityError as e:
-                #duplicate splice
-                print(e.__str__(), str(gid), stops[index], starts[index+1])
-        """
+            #if its coding figure out CDS and UTR
+            retCoding = UcscCoding(started, ended, codingTrans, lList, starts, stops, lList[5], lList[6])
+            #update started and ended trackers
+            started = retCoding['started']
+            ended = retCoding['ended']
+            c.execute("INSERT INTO Exon VALUES("+str(tranIdx)+", "+str(exonIdx)+", "+str(exonNumber)+", '"+lList[1]+"', "+starts[i]+", "+stops[i]+", '"+str(retCoding['cdsStart'])+"', '"+str(retCoding['cdsStop'])+"', '"+str(retCoding['utrStart'])+"', '"+str(retCoding['utrStop'])+"')")
+            exonIdx+=1
+                
     c.execute("commit")
     
 

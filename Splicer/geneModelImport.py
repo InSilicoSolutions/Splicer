@@ -2,8 +2,6 @@
 import sys
 import sqlite3
 import os
-from _sqlite3 import IntegrityError
-from _overlapped import NULL
 
 #usage 
     #argument 1: gtf or ucsc  
@@ -49,54 +47,7 @@ class Exon:
             return True
         else:
             return False
-"""        
-        #add all the positions to a list and sort them
-        posList = list(self.starts)
-        posList.extend(self.stops)
-        posList.sort()
-        #if negative strand reverse
-        if self.strand == "-":
-            temp = self.starts
-            self.starts = self.stops
-            self.stops = temp
-            posList.reverse()
-        #boolean used to keep track of if the loop has seen a stop position
-        boolStop = False
-        current = SubExon("1.1", posList[0], None)
-        exonCount = 1
-        subExonCount = 1
-        exonList = []
-        #loop through the positions making appropriate subExon objects
-        for i in range(1,len(posList)):
-            
-            #note the positions here are splice starts and stops so where a splice stops is where an exon starts
-            if posList[i] in self.stops or boolStop == False:
-                #set the stop marker if this is a stop position
-                if posList[i] in self.stops:
-                    boolStop = True
-                #update the current sub exon with its end position
-                current.stop = posList[i]
-                #if this is the first time the exon has been split change the name of the exon to have a .1
-                subExonCount += 1
-                #add the previous exon to the list before writing over the current variable
-                exonList.append(current)
-                #make the new sub exon object
-                current = SubExon(str(exonCount)+"."+str(subExonCount), posList[i], None)
-                
-            else:
-                boolStop = False
-                #if the exon has no subexons remove the '.1' from the name
-                if current.name.split('.')[1] == "2":
-                    exonList[-1].name = exonList[-1].name.split(".")[0]
-                exonCount += 1
-                subExonCount = 1
-                current = SubExon(str(exonCount)+"."+str(subExonCount), posList[i], None)
-        if current.name.split('.')[1] == "2":
-            exonList[-1].name = exonList[-1].name.split(".")[0]
-            #for exon in exonList:
-            #add to database   
-        print(posList)
-"""
+
 #get connection to the sqlite database
 conn = sqlite3.connect(sys.argv[2] + os.path.sep + 'splice.sqlite', isolation_level=None)
 c = conn.cursor()
@@ -114,7 +65,7 @@ c.execute('''CREATE TABLE Gene
               Stop_Position INTEGER NOT NULL DEFAULT NULL,
               Type varchar(30) DEFAULT NULL,
               Source varchar(30) DEFAULT NULL);''')
-c.execute("CREATE INDEX gSymbol ON Gene(symbol);")
+c.execute("CREATE INDEX idx_Gene_Symbol ON Gene(symbol);")
 
 c.execute("DROP TABLE IF EXISTS Transcript;")
 c.execute('''CREATE TABLE Transcript
@@ -125,6 +76,7 @@ c.execute('''CREATE TABLE Transcript
               Start_Position INTEGER NOT NULL DEFAULT NULL,
               Stop_Position INTEGER NOT NULL DEFAULT NULL,
               Type varchar(30) NOT NULL DEFAULT NULL);''')
+c.execute("CREATE INDEX idx_Transcript_Gene ON Transcript(Gene_ID);")
 
 c.execute("DROP TABLE IF EXISTS Exon;")
 c.execute('''CREATE TABLE Exon
@@ -138,6 +90,7 @@ c.execute('''CREATE TABLE Exon
               CDS_Stop INTEGER DEFAULT NULL,
               UTR_Start varchar(30) DEFAULT NULL,
               UTR_Stop varchar(30) DEFAULT NULL);''')
+c.execute("CREATE INDEX idx_Exon_Transcript ON Exon(Transcript_ID);")
 
 
 #column 8 of gtf format is s dictionary in string form
@@ -312,6 +265,7 @@ elif sys.argv[1] == "ucsc":
             maxStop = lList[4]
         #check if the line belongs to the current symbol
         if symbol != currentSymbol :
+            
             geneType = "noncoding"
             if geneCoding:
                 geneType = "coding"
@@ -347,7 +301,12 @@ elif sys.argv[1] == "ucsc":
             ended = retCoding['ended']
             c.execute("INSERT INTO Exon VALUES("+str(tranIdx)+", "+str(exonIdx)+", "+str(exonNumber)+", '"+lList[1]+"', "+starts[i]+", "+stops[i]+", '"+str(retCoding['cdsStart'])+"', '"+str(retCoding['cdsStop'])+"', '"+str(retCoding['utrStart'])+"', '"+str(retCoding['utrStop'])+"')")
             exonIdx+=1
-                
+    #insert the last gene
+    geneType = "noncoding"
+    if geneCoding:
+        geneType = "coding"
+    c.execute("INSERT INTO gene VALUES("+str(geneIdx)+", '""', '"+currentSymbol+"', '"+currentChrom+"', '"+currentStrand+"', '"+minStart+"', '"+maxStop+"', '"+geneType+"', 'UCSC KnownGene')")
+    print(geneIdx)        
     c.execute("commit")
     
 

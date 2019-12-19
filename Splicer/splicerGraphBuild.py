@@ -1,15 +1,13 @@
-import sys
 import sqlite3
 import os
+import argparse
 
-#usage 
-    #argument 1: path for database
-if len(sys.argv) < 2:
-    print("the argument should be the path to the database file")
-    sys.exit()
+parser = argparse.ArgumentParser(description='Process initial database tables into refined SG tables.')
+parser.add_argument("Database", help='The path to where you want to store the database file')
+args = parser.parse_args()
 
 #get connection to the sqlite database
-conn = sqlite3.connect(sys.argv[1] + os.path.sep + 'splice.sqlite', isolation_level=None)
+conn = sqlite3.connect(args.Database + os.path.sep + 'splice.sqlite', isolation_level=None)
 c = conn.cursor()
 
 c.execute("DROP TABLE IF EXISTS SG_Exon;")

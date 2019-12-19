@@ -1,18 +1,14 @@
-
-import sys
 import sqlite3
 import os
+import argparse
 
-#usage 
-    #argument 1: gtf or ucsc  
-    #argument 2: path for database
-    #argument 3: input file
-if len(sys.argv) < 4:
-    print("the first argument should be 'gtf' or 'ucsc' to determine the input type")
-    print("the second argument should be the path to where you want to store the database file")
-    print("the third argument should be the input file")
-    sys.exit()
+parser = argparse.ArgumentParser(description='geneModelImport reads reference transcript models into the Splicer database.  It accepts either a GTF file or a set of  UCSC knownGene files.', usage='geneModelImport database_directory  GTF|UCSC GTF_File|knownGene.txt kgTxInfo.txt kgXRef.txt')
+parser.add_argument("Database", help='The path to where you want to store the database file.')
+parser.add_argument("Type", choices=['GTF', 'UCSC'], help='The type of the files to be imported.')
+parser.add_argument("Input", nargs='+', help='GTF input file or UCSC input files.')
+args = parser.parse_args()
 
+    
 #class that holds the data of an exon
 #these are made for each exon line in a transcript, updated with the cds and utr info, and then inserted into the database
 class Exon:
@@ -39,7 +35,7 @@ class Exon:
             elif len(self.utrStart) == 1 :
                 self.utrStart = self.utrStart[0]
                 self.utrStop = self.utrStop[0]
-        c.execute("INSERT INTO Exon VALUES("+str(self.tid)+", "+str(self.eid)+", "+str(self.exonNum)+", '"+str(self.chrom)+"', "+str(self.startPos)+", "+str(self.stopPos)+", "+str(self.cdsStart)+", "+str(self.cdsStop)+", '"+str(self.utrStart)+"', '"+str(self.utrStop)+"')")
+        c.execute("INSERT INTO Exon VALUES("+str(self.tid)+", "+str(self.eid)+", "+str(self.exonNum)+", '"+str(self.chrom)+"', "+str(self.startPos)+", "+str(self.stopPos)+", '"+str(self.cdsStart)+"', '"+str(self.cdsStop)+"', '"+str(self.utrStart)+"', '"+str(self.utrStop)+"')")
 
     #checks if a given utr start is within the bounds of this exon
     def contains(self, utrStart):
@@ -49,7 +45,7 @@ class Exon:
             return False
 
 #get connection to the sqlite database
-conn = sqlite3.connect(sys.argv[2] + os.path.sep + 'splice.sqlite', isolation_level=None)
+conn = sqlite3.connect(args.Database + os.path.sep + 'splice.sqlite', isolation_level=None)
 c = conn.cursor()
 
 #create or rebuild tables
@@ -86,8 +82,8 @@ c.execute('''CREATE TABLE Exon
               Chromosome varchar(30) NOT NULL DEFAULT NULL,
               Start_Position INTEGER NOT NULL DEFAULT NULL,
               Stop_Position INTEGER NOT NULL DEFAULT NULL,
-              CDS_Start INTEGER DEFAULT NULL,
-              CDS_Stop INTEGER DEFAULT NULL,
+              CDS_Start varchar(30) DEFAULT NULL,
+              CDS_Stop varchar(30) DEFAULT NULL,
               UTR_Start varchar(30) DEFAULT NULL,
               UTR_Stop varchar(30) DEFAULT NULL);''')
 c.execute("CREATE INDEX idx_Exon_Transcript ON Exon(Transcript_ID);")
@@ -109,13 +105,12 @@ def dictGen(stringDict):
             retDict[eSplit[1]] = eSplit[2]
     return retDict
 
-def UcscCoding(started, ended, codingTrans, lList, starts, stops, cdsStart, cdsStop):
+#evaluates the CDS and UTR for a coding ucsc exon
+def UcscCoding(started, ended, codingTrans, lList, exonStart, exonStop, cdsStart, cdsStop):
     exonCdsStart = None
     exonCdsStop = None
     exonUtrStart = None
     exonUtrStop = None
-    exonStart = starts[i]
-    exonStop = stops[i]
     if(codingTrans[lList[0]]):
         #whole exon is utr
         if not started or ended:
@@ -155,10 +150,11 @@ def UcscCoding(started, ended, codingTrans, lList, starts, stops, cdsStart, cdsS
                 exonCdsStop = exonStop
                 
     return   {"cdsStart":exonCdsStart, "cdsStop":exonCdsStop, "utrStart":exonUtrStart, "utrStop":exonUtrStop, "started":started, "ended":ended}      
-    
-if sys.argv[1] == "gtf":
+
+#populate tables from a gtf input file
+def processGTF():
     #open the input file    INPUT FILE FOR TESTING: Homo_sapiens.GRCh37.87.gtf
-    infile = open(sys.argv[3], 'r')    
+    infile = open(args.Input[0], 'r')    
     geneIndex = 0
     tranIndex = 0
     exonIndex = 0
@@ -218,16 +214,17 @@ if sys.argv[1] == "gtf":
     
     c.execute("commit")
     print("done")
-    
-elif sys.argv[1] == "ucsc":
+
+#populate tables from ucsc input files  
+def processUCSC():
     #read kgXref and build a dictionary(enst -> gene symbol)
-    infile = open('kgXref.txt', 'r')    
+    infile = open(args.Input[2], 'r')    
     enstSymbol = {}
     for line in infile:
         lList = line.replace('\n','').split("\t")
         enstSymbol[lList[0]] = lList[4]
     #read kgTxInfo to make and dictionary about which transcripts are coding
-    infile = open('kgTxInfo.txt', 'r')    
+    infile = open(args.Input[1], 'r')    
     codingTrans = {}
     typeTrans = {}
     for line in infile:
@@ -240,7 +237,7 @@ elif sys.argv[1] == "ucsc":
     
     #populate gene table
     #open input file       TESTING FILE: knownGene.txt
-    infile = open(sys.argv[3], 'r')
+    infile = open(args.Input[0], 'r')
     geneIdx = 1
     tranIdx = 0
     exonIdx = 1
@@ -250,12 +247,20 @@ elif sys.argv[1] == "ucsc":
     geneCoding = False
     maxStop = None
     minStart = None
-    exonData = {} #symbol -> exon data object
     c.execute("begin")
     for line in infile:
         lList = line.replace('\n','').split("\t")
         starts = lList[8].split(",")
         stops = lList[9].split(",")
+        #add one to all starts and cds start
+        for i in range(len(starts)-1):
+            #add one to start
+            starts[i] = str(int(starts[i]) + 1)
+        #add one to cds start
+        lList[5] = str(int(lList[5]) + 1)
+        #add one to gene start
+        lList[3] = str(int(lList[3]) + 1)
+        
         symbol = enstSymbol[lList[0]]
         if currentSymbol=="":
             currentSymbol = symbol 
@@ -290,12 +295,11 @@ elif sys.argv[1] == "ucsc":
         started = False
         ended = False
         for i in range(len(starts)-1):
-            iNumber = i+1
             #find out exon number (counts backwards if negative strand)
+            iNumber = i+1
             exonNumber = iNumber if lList[2] == '+' else len(starts)-iNumber
-            
             #if its coding figure out CDS and UTR
-            retCoding = UcscCoding(started, ended, codingTrans, lList, starts, stops, lList[5], lList[6])
+            retCoding = UcscCoding(started, ended, codingTrans, lList, starts[i], stops[i], lList[5], lList[6])
             #update started and ended trackers
             started = retCoding['started']
             ended = retCoding['ended']
@@ -308,6 +312,14 @@ elif sys.argv[1] == "ucsc":
     c.execute("INSERT INTO gene VALUES("+str(geneIdx)+", '""', '"+currentSymbol+"', '"+currentChrom+"', '"+currentStrand+"', '"+minStart+"', '"+maxStop+"', '"+geneType+"', 'UCSC KnownGene')")
     print(geneIdx)        
     c.execute("commit")
-    
-
     print('done')
+    
+if args.Type == "GTF":
+    processGTF()
+elif args.Type == "UCSC":
+    if (len(args.Input) < 3):
+        parser.print_help()
+    else:
+        processUCSC()
+    
+        

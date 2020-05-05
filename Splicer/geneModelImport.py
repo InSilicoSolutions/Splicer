@@ -1,11 +1,23 @@
+# The geneModelImport program creates the reference transcript database tables for the Splicer analysis.  It imports either
+# a GTF file like those available from Ensemble or a set of UCSC known gene tiles available as downloads from UCSC.  The
+# transcripts imported are sometimes called gene models and they represent the splicing isoforms of all the genes in the
+# genome.  Both coding and non-coding transcripts are imported into the reference database.  It is important that the reference
+# model selected is in the same genomic coordinates as the .bam files of RNASeq data that you plan to analyze.  If the .bam 
+# files were aligned to hg19/GRCh37 genome, then the GTF or knownGene models should be for hg19.
+#
+# An example of an hg19 Ensemble GTF file can be found here: ftp://ftp.ensembl.org/pub/grch37/current/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz
+#
+# To use UCSC gene models, you need to provide knownGene.txt kgTxInfo.txt kgXRef.txt in that order as the input file.  An example
+# of hg19 versions of these files can be found on the UCSC download site: http://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/
+
 import sqlite3
 import os
 import argparse
 
 parser = argparse.ArgumentParser(description='geneModelImport reads reference transcript models into the Splicer database.  It accepts either a GTF file or a set of  UCSC knownGene files.', usage='geneModelImport database_directory  GTF|UCSC GTF_File|knownGene.txt kgTxInfo.txt kgXRef.txt')
 parser.add_argument("Database", help='The path to where you want to store the database file.')
-parser.add_argument("Type", choices=['GTF', 'UCSC'], help='The type of the files to be imported.')
-parser.add_argument("Input", nargs='+', help='GTF input file or UCSC input files.')
+parser.add_argument("Type", choices=['GTF', 'UCSC'], help='The type of the transcript reference files to be imported.')
+parser.add_argument("Input", nargs='+', help='GTF input file or knownGene.txt, kgTxInfo.txt, and kgXRef.txt from UCSC.')
 args = parser.parse_args()
 
     
@@ -89,7 +101,7 @@ c.execute('''CREATE TABLE Exon
 c.execute("CREATE INDEX idx_Exon_Transcript ON Exon(Transcript_ID);")
 
 
-#column 8 of gtf format is s dictionary in string form
+#column 8 of gtf format is a dictionary in string form
 #this function makes that string into an actual dictionary
 def dictGen(stringDict):
     retDict = {}

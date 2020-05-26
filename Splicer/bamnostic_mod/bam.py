@@ -119,7 +119,8 @@ class BAMheader(object):
                             tag = split_field[0]
                             value = split_field[2]
                         else:
-                            tag, value = split_field
+                            tag = split_field[0]
+                            value = split_field[0]
                         try:
                             value = int(value)
                         except ValueError:

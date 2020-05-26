@@ -1,16 +1,34 @@
 import sqlite3
 import os
-import bamnostic as bn
+import bamnostic_mod as bn
 import argparse
 import bisect
 import time
 
+#Downloads\Lung\47b982b3-c7ce-4ca7-8c86-c71c15979620\G28588.NCI-H1915.1.bam
+#Downloads\Lung\98a0206b-29f5-42d3-957b-6480e2fde185\G20483.HCC-15.2.bam
+#Downloads\Lung\18004fb1-89a2-4ba1-a321-a0aa854e98c3\G25210.NCI-H510.1.bam
+#Downloads\Lung\47030e40-acbd-4905-939c-d57441d7042e\G25222.NCI-H2171.1.bam
+#Downloads\Lung\1357785f-f84b-4688-9b4c-0c2b5472ef51\G27281.RERF-LC-MS.1.bam
+#Downloads\Lung\e48ea2ee-1dda-4061-a199-6e22fd2df382\G25212.NCI-H661.1.bam
+#Downloads\Lung\f03dbfee-a523-438f-8459-f47f2ff1880f\G25224.NCI-H2066.1.bam
+
+#Downloads\HeadAndNeck\0e67231f-97be-447c-b3b0-a656fc30a62d\G27454.PE_CA-PJ15.2.bam
+#Downloads\HeadAndNeck\1acf65a0-0268-4288-9904-33bff618a31d\G27515.PE_CA-PJ41__clone_D2_.2.bam
+#Downloads\HeadAndNeck\1f290458-df28-4c78-b73d-0202fb53bb0e\G27220.SCC-4.1.bam
+#Downloads\HeadAndNeck\2b507086-977b-4cb7-abd9-83ee4ce9a893\G27489.PE_CA-PJ34__clone_C12_.2.bam
+#Downloads\HeadAndNeck\7ed3e895-6826-430d-a39d-338111f16083\G27512.SNU-1214.2.bam
+#Downloads\HeadAndNeck\c11aa745-72ea-44ca-b70d-7811c2f244b7\G27533.SNU-1066.2.bam
+#Downloads\HeadAndNeck\dc8393c0-7d9e-4040-a91a-5783544cac35\G28853.HSC-4.3.bam
+
 parser = argparse.ArgumentParser(description='takes the given .bam file and looks through all the reads to construct a count of all exons and splices in the reference splice graphs', usage='geneModelImport database_directory  GTF|UCSC GTF_File|knownGene.txt kgTxInfo.txt kgXRef.txt')
 parser.add_argument("Database", help='The path to where you want to store the database file.')
 parser.add_argument("Bam", help='The .bam file to count the reads from')
-parser.add_argument("sampleName", help='GTF input file or UCSC input files.')
+parser.add_argument("sampleName", help='Name for current sample in the sample table')
+parser.add_argument("unKnownSplices", choices=['True', 'False'], help='Controls whether the program tries to find new splices')
 args = parser.parse_args()
 
+os.chdir("E:\\")
 #get connection to the sqlite database
 conn = sqlite3.connect(args.Database + os.path.sep + 'splice.sqlite', isolation_level=None)
 c = conn.cursor()
@@ -52,6 +70,7 @@ if prevId:
 else:
     Sample_Id = 1
 
+unKnownSplices = args.unKnownSplices
 
 #initialize the splice dictionary
 sDict = {}
@@ -59,6 +78,7 @@ eDict = {}
 epDict = {}
 ecDict = {}
 scDict = {}
+discoverySplices = {}
 
 start_time = time.time()
 
@@ -74,6 +94,8 @@ for y in range(len(ret)):
         chrom = "chrM"
     if chrom not in sDict:
         sDict[chrom] = {}
+        if unKnownSplices == 'True':
+            discoverySplices[chrom] = {}
     sDict[chrom][key] = ret[y][0]
     
     
@@ -149,8 +171,11 @@ def exonIncrement(start, stop, chro):
 
 f = open('diagnostic.txt', 'w')    
 fe = open('exceptions.txt', 'w')
+fns = open ('novelSplices.txt', 'w')
 i = 0
+
 totalCount = 0
+missingAttrCount = 0
 tranCount = 0
 totalDupeCount = 0
 tranDupeCount = 0
@@ -163,6 +188,17 @@ prevRead = ""
 prevExons = ""
 prevSplices = ""
 for read in samfile:
+    #read does not have an alignment
+    if (
+        not hasattr(read, 'reference_name')  or read.reference_name == None  or
+        not hasattr(read, 'reference_start') or read.reference_start == None or
+        not hasattr(read, 'reference_end')   or read.reference_end == None   or
+        not hasattr(read, 'cigarstring')     or read.cigarstring == None     or
+        not hasattr(read, 'cigar')           or read.cigar == None
+       ):
+        missingAttrCount += 1
+        continue
+    
     dupeTag = False
     exonSet = set()
     spliceSet = set()
@@ -170,11 +206,14 @@ for read in samfile:
     readR_E = read.reference_end
     i+=1
     totalCount += 1
-    #print(f"{totalCount:,d}")
+    if totalCount % 1000000 == 0:
+        print(f"{totalCount:,d}")
     tranBool = False
     cigarString = read.cigarstring
     cigar = read.cigar
     chro = read.reference_name
+    if not chro.startswith("chr"):
+        chro = "chr"+chro
     if str(readR_S)+"-"+str(readR_E)+"-"+cigarString+"-"+chro == prevRead:
         dupeTag = True
         totalDupeCount += 1
@@ -211,6 +250,14 @@ for read in samfile:
                         scDict[spliceID] += 1
                     else:
                         scDict[spliceID] = 1
+                elif unKnownSplices == 'True':
+                    if start in eDict[chro] and stop in eDict[chro]:
+                        if str(start)+"-"+str(stop) in discoverySplices[chro]:
+                            discoverySplices[chro][str(start)+"-"+str(stop)]+=1
+                        else:
+                            discoverySplices[chro][str(start)+"-"+str(stop)]=1
+                            
+                        experiSplicect = 1
             except Exception as e:
                 exceptionCount += 1
                 fe.write(str(type(e))+': '+str(e)+"\n")
@@ -261,8 +308,13 @@ for key in ecDict:
 #add this sample to the sample table    
 c.execute("INSERT INTO Sample VALUES("+str(Sample_Id)+", "+args.sampleName+", "+str(totalCount)+", "+str(tranCount)+")")
 c.execute('commit')
+for chromkey in discoverySplices:
+    for skey in discoverySplices[chromkey]:
+        fns.write(skey + ", Count: " + str(discoverySplices[chromkey][skey])+'\n')
 f.close()
 fe.close()
+fns.close()
+print("missing attribute reads: " + str(missingAttrCount))
 print("transcript junction reads: "+str(tranJRcount))
 print("total junction reads: "+str(totalJRcount))
 print("transcript duplicate reads: "+str(tranDupeCount))

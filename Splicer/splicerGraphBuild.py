@@ -45,9 +45,6 @@ def exonBuilder(starts, stops, strand, Gene_ID, chromosome, SG_Exon_ID):
     posList.sort()
     #if negative strand reverse
     if strand == "-":
-        temp = starts
-        starts = stops
-        stops = temp
         posList.reverse()
     #boolean used to keep track of if the loop has seen a stop position
     boolStop = False
@@ -130,26 +127,36 @@ for i in range(numGenes):
     ret = c.fetchall()
     previousTrans = 0
     previousStop = 0
+    strand = ret[0][5]
     starts = []
     stops = []
     print(ret[0][0])
     for y in range(len(ret)):
-        starts.append(ret[y][2])
-        stops.append(ret[y][3])
+        if strand == '-':
+            stops.append(ret[y][2])
+            starts.append(ret[y][3])
+            thisStart = ret[y][3]
+        else:
+            starts.append(ret[y][2])
+            thisStart = ret[y][2]
+            stops.append(ret[y][3])
         if previousTrans == ret[y][4]:
             Gene_ID = ret[y][0]
-            thisStart = ret[y][2]
+            
             chromosome = ret[y][1]
             try:
                 c.execute("INSERT INTO SG_Splice VALUES("+str(Gene_ID)+", "+str(SG_Splice_ID)+", '"+chromosome+"', "+str(previousStop)+", "+str(thisStart)+")")
                 SG_Splice_ID += 1
             except:
                 print('failed unique constraint: '+chromosome+"', "+str(previousStop)+", "+str(thisStart))
-        previousStop = ret[y][3]
+        if strand == '-':
+            previousStop = ret[y][2]
+        else:
+            previousStop = ret[y][3]
         previousTrans = ret[y][4]
         
     #run exon builder on the starts and stops gathered from the original exon entries for this gene
-    SG_Exon_ID = exonBuilder(starts, stops, ret[0][5], ret[0][0], ret[0][1], SG_Exon_ID)
+    SG_Exon_ID = exonBuilder(starts, stops, strand, ret[0][0], ret[0][1], SG_Exon_ID)
 c.execute("commit")
 print("done")
     

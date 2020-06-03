@@ -242,7 +242,7 @@ for read in samfile:
             
             #check if the splice is known and count it if so
             try:
-                if str(start)+"-"+str(stop) in sDict[chro]:
+                if str(start)+"-"+str(stop) in sDict[chro] or str(stop)+"-"+str(start) in sDict[chro]:
                     spliceID = sDict[chro][str(start)+"-"+str(stop)]
                     spliceSet.add(spliceID)
                     tranBool = True

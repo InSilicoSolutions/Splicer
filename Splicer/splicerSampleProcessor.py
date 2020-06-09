@@ -21,11 +21,11 @@ import time
 #Downloads\HeadAndNeck\c11aa745-72ea-44ca-b70d-7811c2f244b7\G27533.SNU-1066.2.bam
 #Downloads\HeadAndNeck\dc8393c0-7d9e-4040-a91a-5783544cac35\G28853.HSC-4.3.bam
 
-parser = argparse.ArgumentParser(description='takes the given .bam file and looks through all the reads to construct a count of all exons and splices in the reference splice graphs', usage='geneModelImport database_directory  GTF|UCSC GTF_File|knownGene.txt kgTxInfo.txt kgXRef.txt')
+parser = argparse.ArgumentParser(description='takes the given .bam file and looks through all the reads to construct a count of all exons and splices in the reference splice graphs', usage='splicerSampleProcessor database_directory bam_file sample_name novelSplicesToggle(True|False)')
 parser.add_argument("Database", help='The path to where you want to store the database file.')
 parser.add_argument("Bam", help='The .bam file to count the reads from')
 parser.add_argument("sampleName", help='Name for current sample in the sample table')
-parser.add_argument("unKnownSplices", choices=['True', 'False'], help='Controls whether the program tries to find new splices')
+parser.add_argument("novelSplices", choices=['True', 'False'], help='Controls whether the program tries to find new splices')
 args = parser.parse_args()
 
 os.chdir("E:\\")
@@ -70,7 +70,7 @@ if prevId:
 else:
     Sample_Id = 1
 
-unKnownSplices = args.unKnownSplices
+novelSplices = args.novelSplices
 
 #initialize the splice dictionary
 sDict = {}
@@ -94,7 +94,7 @@ for y in range(len(ret)):
         chrom = "chrM"
     if chrom not in sDict:
         sDict[chrom] = {}
-        if unKnownSplices == 'True':
+        if novelSplices == 'True':
             discoverySplices[chrom] = {}
     sDict[chrom][key] = ret[y][0]
     
@@ -164,13 +164,11 @@ def exonIncrement(start, stop, chro):
         #if it goes of the end of a known exon add none and scrap the read
         if looped and stop > pList[i-1][1]:
             return([])
-    except:
-        fe.write(chro+'\n')
+    except Exception:
+        pass
     
     return(exonIds)
 
-f = open('diagnostic.txt', 'w')    
-fe = open('exceptions.txt', 'w')
 fns = open ('novelSplices.txt', 'w')
 i = 0
 
@@ -250,7 +248,7 @@ for read in samfile:
                         scDict[spliceID] += 1
                     else:
                         scDict[spliceID] = 1
-                elif unKnownSplices == 'True':
+                elif novelSplices == 'True':
                     if start in eDict[chro] and stop in eDict[chro]:
                         if str(start)+"-"+str(stop) in discoverySplices[chro]:
                             discoverySplices[chro][str(start)+"-"+str(stop)]+=1
@@ -260,7 +258,6 @@ for read in samfile:
                         experiSplicect = 1
             except Exception as e:
                 exceptionCount += 1
-                fe.write(str(type(e))+': '+str(e)+"\n")
             exonID = ""
             
         exonSet.update(exonIncrement(stop, readR_E, chro))
@@ -286,8 +283,6 @@ for read in samfile:
             
     if tranBool == True:
         tranCount += 1
-    elif dupeTag == False:
-        f.write("read start:"+str(readR_S+1)+"  read stop:"+str(readR_E)+ "  negative strand?: "+ str(read.is_reverse)+"  "+chro+"\n")
     
     #set this line to prevRead
     if dupeTag == False:
@@ -311,8 +306,6 @@ c.execute('commit')
 for chromkey in discoverySplices:
     for skey in discoverySplices[chromkey]:
         fns.write(skey + ", Count: " + str(discoverySplices[chromkey][skey])+'\n')
-f.close()
-fe.close()
 fns.close()
 print("missing attribute reads: " + str(missingAttrCount))
 print("transcript junction reads: "+str(tranJRcount))

@@ -2,6 +2,7 @@ import sqlite3
 import os
 import argparse
 
+#master comment
 parser = argparse.ArgumentParser(description='Process initial database tables into refined SG tables.')
 parser.add_argument("Database", help='The path to where you want to store the database file')
 args = parser.parse_args()

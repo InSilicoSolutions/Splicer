@@ -28,7 +28,7 @@ parser.add_argument("sampleName", help='Name for current sample in the sample ta
 parser.add_argument("novelSplices", choices=['True', 'False'], help='Controls whether the program tries to find new splices')
 args = parser.parse_args()
 
-os.chdir("E:\\")
+os.chdir("D:\\")
 #get connection to the sqlite database
 conn = sqlite3.connect(args.Database + os.path.sep + 'splice.sqlite', isolation_level=None)
 c = conn.cursor()
@@ -206,6 +206,7 @@ for read in samfile:
     totalCount += 1
     if totalCount % 1000000 == 0:
         print(f"{totalCount:,d}")
+        break
     tranBool = False
     cigarString = read.cigarstring
     cigar = read.cigar
@@ -270,7 +271,8 @@ for read in samfile:
         exonSet.update(exonIncrement(start, stop, chro))
         if (len(exonSet) != 0):
             tranNJRcount += 1
-            
+        else:
+            print("Missing: " + chro + ' ' + str(start) + ' ' + str(stop))    
     
     #add in all the sets
     for exon in exonSet:

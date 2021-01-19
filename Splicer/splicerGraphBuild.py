@@ -36,6 +36,16 @@ class SubExon:
         self.start = start
         self.stop = stop
 
+def checkOverlap(chromosome, start, stop):
+    c.execute("select * from SG_Exon where Chromosome = '" + chromosome +"' and (" + str(start) + " Between Start_Position and Stop_Position OR " + str(stop) + " Between Start_Position and Stop_Position OR (Start_Position < " + str(start) + " AND Stop_Position > " + str(stop) + "))");
+    ret = c.fetchone()
+    if (ret):
+        print("Ack: Dup gene: " + str(ret[0]))
+        return True
+    return False
+
+
+
 #builds and names exons from all the starts and stops in one gene
 #then in populates SG_Exon table with these new exons    
 def exonBuilder(starts, stops, strand, Gene_ID, chromosome, SG_Exon_ID):
@@ -107,6 +117,7 @@ def exonBuilder(starts, stops, strand, Gene_ID, chromosome, SG_Exon_ID):
         #for exon in exonList:
         #add to database
     for exon in exonList:
+        checkOverlap(chromosome, exon.start, exon.stop)
         try:
             c.execute("INSERT INTO SG_Exon VALUES("+str(Gene_ID)+", "+str(SG_Exon_ID)+", "+exon.name+", '"+chromosome+"', "+str(exon.start)+", "+str(exon.stop)+")")  
             print("Exon: "+str(SG_Exon_ID))
@@ -121,8 +132,8 @@ ret = c.fetchone()
 numGenes = ret[0]
 SG_Splice_ID = 1
 SG_Exon_ID = 1
-c.execute("begin")
 for i in range(numGenes):
+    c.execute("begin")
     c.execute("SELECT Transcript.Gene_ID, Exon.Chromosome, Exon.Start_Position, Exon.Stop_Position, Exon.Transcript_ID, Gene.Strand FROM Exon Join Transcript on Transcript.Transcript_ID = Exon.Transcript_ID JOIN Gene ON Transcript.Gene_ID = Gene.Gene_ID  WHERE Transcript.Gene_ID = "+str(i+1))
     ret = c.fetchall()
     previousTrans = 0
@@ -157,6 +168,6 @@ for i in range(numGenes):
         
     #run exon builder on the starts and stops gathered from the original exon entries for this gene
     SG_Exon_ID = exonBuilder(starts, stops, strand, ret[0][0], ret[0][1], SG_Exon_ID)
-c.execute("commit")
+    c.execute("commit")
 print("done")
     

@@ -1,0 +1,107 @@
+version 1.0
+## 
+## This WDL performs splicer analysis of a RNASeq bam file to count splice junctions and 
+## create a vector of read depth at each genomic location.
+##
+## Requirements/expectations :
+## - One or more SAM or BAM files 
+##
+## Outputs:
+## - Set of .zip files containing pickled dictionary of splices and per chromosome vectors of read depth.
+##
+
+# WORKFLOW DEFINITION
+workflow SplicerWf {
+  input {
+    File input_bam 
+    File input_bam_index
+    String out_bucket
+    String splice_docker = "gcr.io/dockerreg-340916/splicer"
+  }
+
+  # Get the basename, i.e. strip the filepath and the extension
+  String bam_basename = basename(input_bam, ".Aligned.sortedByCoord.out.patched.md.bam")
+
+  # Process the bam
+  call Splicer  {
+      input:
+        input_bam = input_bam,
+        input_bam_index = input_bam_index,
+        output_basename = bam_basename,
+        docker = splice_docker
+  }
+  
+  call UploadData {
+      input:
+        data_file = Splicer.splicer_counts,
+        output_bucket = out_bucket
+  }
+  
+
+  # Outputs that will be retained when execution is complete
+  output {
+    File splice_counts = Splicer.splicer_counts
+  }
+}
+
+# TASK DEFINITIONS
+
+# Validate a SAM or BAM using Picard ValidateSamFile
+task Splicer {
+  input {
+    # Command parameters
+    File input_bam
+    File input_bam_index
+    String output_basename
+  
+    # Runtime parameters
+    String docker
+    Int machine_mem_gb = 4
+    Int addtional_disk_space_gb = 50
+  }
+    
+  Int disk_size = ceil(size(input_bam, "GB")) + addtional_disk_space_gb
+ 
+  command {
+      python /bin/splice_counter.py ${input_bam} 
+  }
+  runtime {
+    docker: docker
+    memory: machine_mem_gb + " GB"
+    disks: "local-disk " + disk_size + " HDD"
+  }
+  output {
+    File splicer_counts = "${output_basename}.zip"
+  }
+}
+
+task UploadData {
+  input {
+	File data_file
+    String output_bucket
+  }
+    
+  command {
+    echo --------------; echo "Start Result Transfer - time: $(date)"; set -euxo pipefail; echo --------------
+
+    gsutil -m -q cp "${data_file}" ${output_bucket}/
+
+    echo --------------; set +xe; echo "Done - time: $(date)"; echo --------------
+  }
+    
+  runtime {
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:latest"
+    cpu: 1
+    memory: "2 GB"
+    disks: "local-disk 10 HDD"
+    preemptible: 2
+  }
+}
+
+
+
+
+
+
+
+

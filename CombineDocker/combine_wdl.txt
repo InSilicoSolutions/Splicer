@@ -1,0 +1,65 @@
+version 1.0
+## 
+## This WDL combines splice analysis results for many tissue samples into
+## a single dictionary of splices with a vector of counts.
+##
+## Requirements/expectations :
+## - Directory with results from splicer analysis of RNASeq data
+##
+## Outputs:
+## - A .zip files with combined results.  Dictionary of splices with a vector of counts for each sample.
+##
+
+# WORKFLOW DEFINITION
+workflow CombineWf {
+  input {
+    String bucket
+    String tissue
+    String combine_docker = "gcr.io/dockerreg-340916/combine_splice"
+  }
+
+  # Process the bam
+  call Combine  {
+      input:
+		tissue = tissue,
+        bucket = bucket,
+        docker = combine_docker
+  }
+  
+  # Outputs that will be retained when execution is complete
+  output {
+    File combined = Combine.combined
+  }
+}
+
+# TASK DEFINITIONS
+
+# Validate a SAM or BAM using Picard ValidateSamFile
+task Combine {
+  input {
+    # Command parameters
+    String tissue
+    String bucket
+  
+    # Runtime parameters
+    String docker
+    Int machine_mem_gb = 4
+    Int addtional_disk_space_gb = 50
+  }
+    
+  Int disk_size = 150 + addtional_disk_space_gb
+ 
+  command {
+     gsutil -m -q cp ${bucket} "."
+     python /bin/combine_splice.py "." ${tissue}
+     gsutil -m -q cp "${tissue}.zip" ${bucket}/
+  }
+  runtime {
+    docker: docker
+    memory: machine_mem_gb + " GB"
+    disks: "local-disk " + disk_size + " HDD"
+  }
+  output {
+    File combined = "${tissue}.zip"
+  }
+}

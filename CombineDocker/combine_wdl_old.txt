@@ -1,0 +1,124 @@
+version 1.0
+## 
+## This WDL combines splice analysis results for many tissue samples into
+## a single dictionary of splices with a vector of counts.
+##
+## Requirements/expectations :
+## - Directory with results from splicer analysis of RNASeq data
+##
+## Outputs:
+## - A .zip files with combined results.  Dictionary of splices with a vector of counts for each sample.
+##
+
+# WORKFLOW DEFINITION
+workflow CombineWf {
+  input {
+    String bucket
+    String tissue
+    String combine_docker = "gcr.io/dockerreg-340916/combine_splice"
+  }
+
+  call GetData {
+      input:
+        bucket = bucket
+  }
+
+
+  # Process the bam
+  call Combine  {
+      input:
+		tissue = tissue,
+		samples = GetData.samples,
+        docker = combine_docker
+  }
+  
+  call UploadData {
+      input:
+        data_file = Combine.combined,
+        bucket = bucket
+  }
+  
+
+  # Outputs that will be retained when execution is complete
+  output {
+    File combined = Combine.combined
+  }
+}
+
+# TASK DEFINITIONS
+
+# Validate a SAM or BAM using Picard ValidateSamFile
+task Combine {
+  input {
+    # Command parameters
+    String tissue
+    Array[File] samples
+  
+    # Runtime parameters
+    String docker
+    Int machine_mem_gb = 4
+    Int addtional_disk_space_gb = 50
+  }
+    
+  Int disk_size = 150 + addtional_disk_space_gb
+ 
+  command {
+      python /bin/combine_splice.py "." ${tissue}
+  }
+  runtime {
+    docker: docker
+    memory: machine_mem_gb + " GB"
+    disks: "local-disk " + disk_size + " HDD"
+  }
+  output {
+    File combined = "${tissue}.zip"
+  }
+}
+
+task GetData {
+  input {
+    String bucket
+  }
+    
+  command {
+    echo --------------; echo "Start Data Transfer - time: $(date)"; set -euxo pipefail; echo --------------
+
+    gsutil -m -q cp ${bucket} "."
+
+    echo --------------; set +xe; echo "Done - time: $(date)"; echo --------------
+  }    
+  runtime {
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:latest"
+    cpu: 1
+    memory: "2 GB"
+    disks: "local-disk 150 HDD"
+    preemptible: 2
+  }
+  output {
+      Array[File] samples = glob("*.zip")
+  }  
+}
+
+task UploadData {
+  input {
+	File data_file
+    String bucket
+  }
+    
+  command {
+    echo --------------; echo "Start Result Transfer - time: $(date)"; set -euxo pipefail; echo --------------
+
+    gsutil -m -q cp "${data_file}" ${bucket}/
+
+    echo --------------; set +xe; echo "Done - time: $(date)"; echo --------------
+  }
+    
+  runtime {
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:latest"
+    cpu: 1
+    memory: "2 GB"
+    disks: "local-disk 150 HDD"
+    preemptible: 2
+  }
+}
+
